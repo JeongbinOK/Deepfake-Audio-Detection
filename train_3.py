@@ -131,7 +131,7 @@ def main():
             loss = criterion(logits, yb)
             loss.backward()
             optimizer.step()
-            # scheduler.step()        # step LR every optimizer update
+            #scheduler.step()        # step LR every optimizer update
             # ema.update(model.parameters())
             running_loss += loss.item() * xb.size(0)
             correct += (logits.argmax(1) == yb).sum().item()
