@@ -31,14 +31,20 @@ class SEConv1d(nn.Module):
         self.tdnn = nn.Conv1d(in_channels, out_channels,
                               kernel_size=kernel_size, dilation=dilation,
                               padding=padding, bias=False)
-        self.bn = nn.BatchNorm1d(out_channels)
+        self.gn = nn.GroupNorm(num_groups=8, num_channels=out_channels)
         self.relu = nn.ReLU(inplace=True)
         self.se = SEBlock1d(out_channels)
+        # Spatial dropout across channels to regularize
+        self.drop = nn.Dropout2d(p=0.1)
         self.residual = (in_channels == out_channels)
 
     def forward(self, x):
-        # x: (batch, in_channels, time)
-        out = self.relu(self.bn(self.tdnn(x)))
+        # SE-augmented TDNN with GroupNorm and DropBlock
+        out = self.tdnn(x)
+        out = self.gn(out)
+        out = self.relu(out)
+        # apply DropBlock (add spatial dim for 2D)
+        out = self.drop(out.unsqueeze(-1)).squeeze(-1)
         out = self.se(out)
         if self.residual:
             out = out + x
@@ -57,19 +63,18 @@ class AttentiveStatsPool(nn.Module):
         self.attn   = nn.Sequential(
             nn.Conv1d(channels, bottleneck, 1),
             nn.ReLU(inplace=True),
-            nn.BatchNorm1d(bottleneck),
+            nn.GroupNorm(num_groups=8, num_channels=bottleneck),
             nn.Conv1d(bottleneck, channels, 1),
             nn.Softmax(dim=2)
         )
 
     def forward(self, x):
         # x: (B, C, T)
-        w = self.attn(x)                    # (B, C, T) attention weights
-        mu = torch.sum(x * w, dim=2)        # weighted mean (B, C)
-        sigma = torch.sqrt(
-            torch.sum((x ** 2) * w, dim=2) - mu ** 2 + 1e-9
-        )                                   # weighted std  (B, C)
-        return torch.cat([mu, sigma], dim=1)  # (B, 2C)
+        w = self.attn(x)                          # (B, C, T) attention weights
+        mu = torch.sum(x * w, dim=2)              # weighted mean (B, C)
+        var = torch.sum((x ** 2) * w, dim=2) - mu ** 2        # weighted variance
+        sigma = torch.sqrt(torch.clamp(var, min=0.0) + 1e-9)  # safe sqrt
+        return torch.cat([mu, sigma], dim=1)      # (B, 2C)
 
 class ECAPA_TDNN(nn.Module):
     """
@@ -102,7 +107,7 @@ class ECAPA_TDNN(nn.Module):
         self.emb_net = nn.Sequential(
             nn.Linear(channels * 2, emb_dim),
             nn.ReLU(inplace=True),
-            nn.BatchNorm1d(emb_dim),
+            nn.GroupNorm(num_groups=8, num_channels=emb_dim),
             nn.Dropout(dropout_p)
         )
         self.fc_out = nn.Linear(emb_dim, num_classes)
@@ -127,14 +132,7 @@ class ECAPA_TDNN(nn.Module):
 
 def build_model(input_dim=None, hidden1=None, hidden2=None, num_classes=2,
                 depth=4, dropout_p=0.6):
-    """
-    Builder function for ECAPA-TDNN.
-    input_dim: number of mel bins (n_mels)
-    hidden1: channels
-    hidden2: embedding dimension
-    depth: number of TDNN blocks (3–5)
-    dropout_p: dropout probability for classifier
-    """
+    
     n_mels = input_dim if input_dim is not None else 60
     channels = hidden1 if hidden1 is not None else 512
     emb_dim  = hidden2 if hidden2 is not None else 192

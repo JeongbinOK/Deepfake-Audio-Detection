@@ -4,13 +4,21 @@ from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from data_preprocess import load_data, load_config
-from model.ecapa import build_model
+# from model.ecapa import build_model
+from model.best_ecapa import build_model
 from model.loss import FocalLoss
 from torch_ema import ExponentialMovingAverage
 from sklearn.model_selection import StratifiedShuffleSplit
 import pytorch_model_summary
 
-
+import random
+from sklearn.metrics import precision_recall_curve
+def set_seed(seed=2025):
+    random.seed(seed);  np.random.seed(seed)
+    torch.manual_seed(seed);  torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+set_seed()  
 def save_loss_plot(train_hist, val_hist, path):
     import matplotlib.pyplot as plt
     plt.figure()
@@ -30,16 +38,14 @@ def main():
                           else ('mps' if torch.backends.mps.is_available() else 'cpu'))
     print("device:", device)
     batch_size = cfg.get("batch_size")
-    # Use full 50‑k dataset for pre‑training
-    cfg['use_specaugment'] = False
+    
+    # cfg['use_specaugment']=False
     X_train, y_train, _ = load_data(
-        cfg['train_metadata_path'], cfg['train_data_path'],
+        cfg['fine_tune_metadata_path'], cfg['fine_tune_data_path'],
         cfg.get('sr', 16000), cfg.get('n_mfcc', 20), cfg
     )
     X_train = torch.from_numpy(np.array(X_train, dtype=np.float32)).unsqueeze(1)
     y_train = torch.from_numpy(np.array(y_train, dtype=np.int64)).long()
-
-    # (Label smoothing and mixup preprocessing removed)
 
     # Prepare validation split (stratified)
     total_samples = len(y_train)
@@ -67,21 +73,22 @@ def main():
     dropout_p = cfg.get('dropout_p')
     depth = cfg.get('depth')
     n_mels = X_train.size(2)
+    print("n_mels:", n_mels)
     model = build_model(
         input_dim=n_mels,
         hidden1=cfg.get('ecapa_channels', 512),
         hidden2=cfg.get('ecapa_emb_dim', 192),
         num_classes=cfg.get('num_classes', 2),
         dropout_p=dropout_p,
-        depth=depth
+        depth=depth,
     ).to(device)
     
     dummy = torch.zeros(1, 1, n_mels, cfg.get('max_time_steps', 300)).to(device)
     print("\nModel Summary:")
-    print(pytorch_model_summary.summary(model, dummy, max_depth=2, show_input=False))
+    print(pytorch_model_summary.summary(model, dummy, max_depth=2, show_input=True))
 
     # ───── Loss / Optim ─────
-    # ema = ExponentialMovingAverage(model.parameters(), decay=0.999)
+    ema = ExponentialMovingAverage(model.parameters(), decay=0.999)
     if cfg.get('use_focal_loss', False):
         criterion = FocalLoss(alpha=cfg['focal_alpha'], gamma=cfg['focal_gamma'])
     else:
@@ -102,22 +109,28 @@ def main():
     warmup          = int(cfg.get('warmup_steps', 500))
     cos_Tmax        = max(1, total_steps - warmup)
 
-    if warmup > 0:
-        warmup_sched = optim.lr_scheduler.LambdaLR(
-            optimizer, lr_lambda=lr_lambda(warmup)
-        )
-        cosine_sched = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=cos_Tmax, eta_min=eta_min
-        )
-        scheduler = optim.lr_scheduler.SequentialLR(
-            optimizer,
-            schedulers=[warmup_sched, cosine_sched],
-            milestones=[warmup]
-        )
-    else:
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=cos_Tmax, eta_min=eta_min
-        )
+    # if warmup > 0:
+    #     warmup_sched = optim.lr_scheduler.LambdaLR(
+    #         optimizer, lr_lambda=lr_lambda(warmup)
+    #     )
+    #     cosine_sched = optim.lr_scheduler.CosineAnnealingLR(
+    #         optimizer, T_max=cos_Tmax, eta_min=eta_min
+    #     )
+    #     scheduler = optim.lr_scheduler.SequentialLR(
+    #         optimizer,
+    #         schedulers=[warmup_sched, cosine_sched],
+    #         milestones=[warmup]
+    #     )
+    # else:
+    #     scheduler = optim.lr_scheduler.CosineAnnealingLR(
+    #         optimizer, T_max=cos_Tmax, eta_min=eta_min
+    #     )
+
+    sched_cfg = cfg.get('lr_scheduler', {})
+    eta_min = float(sched_cfg.get('eta_min', 0.0))
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=total_steps, eta_min=eta_min
+    )
 
     best_acc = 0.0
     tr_hist, val_hist = [], []
@@ -131,8 +144,8 @@ def main():
             loss = criterion(logits, yb)
             loss.backward()
             optimizer.step()
-            #scheduler.step()        # step LR every optimizer update
-            # ema.update(model.parameters())
+            scheduler.step() 
+            ema.update(model.parameters())
             running_loss += loss.item() * xb.size(0)
             correct += (logits.argmax(1) == yb).sum().item()
             total += xb.size(0)
@@ -161,9 +174,11 @@ def main():
             best_acc = val_acc
             torch.save(model.state_dict(), cfg['model_2_path'])
             print("  Saved best model")
+        
 
     save_loss_plot(tr_hist, val_hist, cfg.get('loss_plot_2_path', 'loss_plot.png'))
     print(f"Best Validation Accuracy: {best_acc*100:.2f}%")
 
+    
 if __name__ == '__main__':
     main()
