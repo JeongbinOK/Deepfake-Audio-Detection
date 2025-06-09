@@ -1,10 +1,10 @@
-import os, time, math, yaml, numpy as np
+import numpy as np
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset
 
 from data_preprocess import load_data, load_config
-# from model.ecapa import build_model
+
 from model.best_ecapa import build_model
 from model.loss import FocalLoss
 from torch_ema import ExponentialMovingAverage
@@ -12,13 +12,15 @@ from sklearn.model_selection import StratifiedShuffleSplit
 import pytorch_model_summary
 
 import random
-from sklearn.metrics import precision_recall_curve
+
 def set_seed(seed=2025):
     random.seed(seed);  np.random.seed(seed)
     torch.manual_seed(seed);  torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
 set_seed()  
+
 def save_loss_plot(train_hist, val_hist, path):
     import matplotlib.pyplot as plt
     plt.figure()
@@ -33,21 +35,22 @@ def lr_lambda(total_warmup):
 
 def main():
     cfg = load_config()
-    
+    # --------- Device ---------
     device = torch.device('cuda' if cfg.get('cuda', False) and torch.cuda.is_available()
                           else ('mps' if torch.backends.mps.is_available() else 'cpu'))
     print("device:", device)
+
+    # ---------- Dataset ------------
     batch_size = cfg.get("batch_size")
     
     # cfg['use_specaugment']=False
     X_train, y_train, _ = load_data(
-        cfg['fine_tune_metadata_path'], cfg['fine_tune_data_path'],
+        cfg['train_metadata_path'], cfg['train_data_path'],
         cfg.get('sr', 16000), cfg.get('n_mfcc', 20), cfg
     )
     X_train = torch.from_numpy(np.array(X_train, dtype=np.float32)).unsqueeze(1)
     y_train = torch.from_numpy(np.array(y_train, dtype=np.int64)).long()
 
-    # Prepare validation split (stratified)
     total_samples = len(y_train)
     val_size = int(0.2 * total_samples)
     np.random.seed(42)
@@ -69,7 +72,7 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    # ───── Model ─────
+    # ------ Model ------
     dropout_p = cfg.get('dropout_p')
     depth = cfg.get('depth')
     n_mels = X_train.size(2)
@@ -85,9 +88,13 @@ def main():
     
     dummy = torch.zeros(1, 1, n_mels, cfg.get('max_time_steps', 300)).to(device)
     print("\nModel Summary:")
-    print(pytorch_model_summary.summary(model, dummy, max_depth=2, show_input=True))
+    print(pytorch_model_summary.summary(
+        model, dummy,
+        max_depth=2,
+        show_input=False,
+    ))
 
-    # ───── Loss / Optim ─────
+    # ----- Loss / Optim -----
     ema = ExponentialMovingAverage(model.parameters(), decay=0.999)
     if cfg.get('use_focal_loss', False):
         criterion = FocalLoss(alpha=cfg['focal_alpha'], gamma=cfg['focal_gamma'])
@@ -100,31 +107,13 @@ def main():
     optimizer  = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_dec)
     print(f"[OPTIM] AdamW lr={lr}  weight_decay={weight_dec}")
 
-    # ───── Scheduler: Warm‑up + Cosine (step‑wise) ─────
+    # ------ Scheduler ------
     sched_cfg = cfg.get('lr_scheduler', {})
     eta_min = float(sched_cfg.get('eta_min', 0.0))
 
     steps_per_epoch = len(train_loader)
     total_steps     = cfg['epochs'] * steps_per_epoch
     warmup          = int(cfg.get('warmup_steps', 500))
-    cos_Tmax        = max(1, total_steps - warmup)
-
-    # if warmup > 0:
-    #     warmup_sched = optim.lr_scheduler.LambdaLR(
-    #         optimizer, lr_lambda=lr_lambda(warmup)
-    #     )
-    #     cosine_sched = optim.lr_scheduler.CosineAnnealingLR(
-    #         optimizer, T_max=cos_Tmax, eta_min=eta_min
-    #     )
-    #     scheduler = optim.lr_scheduler.SequentialLR(
-    #         optimizer,
-    #         schedulers=[warmup_sched, cosine_sched],
-    #         milestones=[warmup]
-    #     )
-    # else:
-    #     scheduler = optim.lr_scheduler.CosineAnnealingLR(
-    #         optimizer, T_max=cos_Tmax, eta_min=eta_min
-    #     )
 
     sched_cfg = cfg.get('lr_scheduler', {})
     eta_min = float(sched_cfg.get('eta_min', 0.0))
@@ -132,6 +121,8 @@ def main():
         optimizer, T_max=total_steps, eta_min=eta_min
     )
 
+
+    # --------- Train ---------
     best_acc = 0.0
     tr_hist, val_hist = [], []
     for epoch in range(1, cfg['epochs']+1):

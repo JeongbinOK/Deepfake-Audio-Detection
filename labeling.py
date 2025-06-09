@@ -59,6 +59,13 @@ def generate_asvspoof_cm_metadata(protocol_path, data_root, subsets=('progress',
                 # train/dev protocols list files directly under data_root (no subfolder)
                 fname = f"{utt}.wav"
                 rel_path = fname
+            # 2-field format: uttID label (2021 eval protocol)
+            elif len(parts) == 2:
+                # 2-field format: uttID label (2021 eval protocol)
+                utt, lbl = parts
+                # files are .flac under data_root or data_root/flac
+                fname = f"{utt}.flac"
+                rel_path = fname
             else:
                 continue  # unexpected format
             # Search for file under data_root or data_root/flac with .wav or .flac
@@ -80,13 +87,35 @@ def generate_asvspoof_cm_metadata(protocol_path, data_root, subsets=('progress',
             # write metadata line
             out.write(f"{speaker_prefix} {rel_path} - - {label_map.get(lbl, lbl)}\n")
 
+
 if __name__ == "__main__":
-    """
-    python labeling.py {datapath} {outputpath}
-    """
-    p = argparse.ArgumentParser(description="Generate audio metadata")
-    p.add_argument("data_dir", help="Root folder with fake/ and real/")
-    p.add_argument("output_file", help="Where to write metadata (e.g. external_label.txt)")
-    p.add_argument("--speaker_prefix", default="EXT", help="Speaker ID prefix")
-    args = p.parse_args()
-    generate_metadata(args.data_dir, args.output_file, args.speaker_prefix)
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate audio metadata")
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+
+    # Raw external data mode
+    raw_parser = subparsers.add_parser("raw", help="Generate metadata for raw fake/real folders")
+    raw_parser.add_argument("data_dir", help="Root folder with fake/ and real/ subdirs")
+    raw_parser.add_argument("output_file", help="Path to write metadata (e.g., external_label.txt)")
+    raw_parser.add_argument("--speaker_prefix", default="EXT", help="Speaker ID prefix")
+
+    # ASVspoof CM mode
+    cm_parser = subparsers.add_parser("cm", help="Generate metadata from ASVspoof CM protocol")
+    cm_parser.add_argument("protocol_path", help="Path to ASVspoof CM trial metadata file")
+    cm_parser.add_argument("data_root", help="Root folder containing audio files (may include flac/ subdir)")
+    cm_parser.add_argument("output_file", help="Path to write metadata (e.g., cm_metadata.txt)")
+    cm_parser.add_argument("--subsets", nargs="+", default=["progress"], help="Subset(s) to include (e.g., progress dev eval)")
+    cm_parser.add_argument("--speaker_prefix", default="LA", help="Speaker ID prefix for ASVspoof data")
+
+    args = parser.parse_args()
+
+    if args.mode == "raw":
+        generate_metadata(args.data_dir, args.output_file, args.speaker_prefix)
+    elif args.mode == "cm":
+        generate_asvspoof_cm_metadata(
+            protocol_path=args.protocol_path,
+            data_root=args.data_root,
+            subsets=tuple(args.subsets),
+            output_file=args.output_file,
+            speaker_prefix=args.speaker_prefix
+        )

@@ -1,17 +1,11 @@
 #dataset
-train_metadata_path: /Users/oeoi/Desktop/ml/dataset2/for-norm/for-norm/training/train.txt 
-train_data_path: /Users/oeoi/Desktop/ml/dataset2/for-norm/for-norm/training 
-# val_metadata_path: /Users/oeoi/Desktop/ml/dataset2/for-2sec/for-2seconds/val_label.txt #./release_in_the_wild/label/val_label.txt
-# val_data_path: /Users/oeoi/Desktop/ml/dataset2/for-2sec/for-2seconds/validation #./release_in_the_wild/val
+train_metadata_path: ./2501ml_data/label/train_label.txt
+train_data_path: ./2501ml_data/train
 test_metadata_path: ./2501ml_data/label/test_label.txt
 test_data_path: ./2501ml_data/test
 
-
-fine_tune_metadata_path: ./2501ml_data/label/train_label.txt
-fine_tune_data_path: ./2501ml_data/train
-
 #Data_preprocess
-# Optional hyperparams:
+
 sr:    16000
 n_mfcc: 20
 
@@ -27,7 +21,7 @@ time_masks: 2      #2
 freq_mask_param: 12 #12
 freq_masks: 2      #2
 
-use_log_mel: true         # whether to use log-mel spectrogram instead of MFCC
+use_log_mel: true        
 n_mels: 128 
 
 
@@ -38,10 +32,10 @@ max_time_steps: 300  # adjusted for ~3 seconds of audio at 10ms hop (100 frames/
 
 #model
 ecapa_channels: 512
-ecapa_emb_dim: 192  #192
-depth: 5   # layer1~4만 사용
+ecapa_emb_dim: 192  
+depth: 5  
 dropout_p: 0.6
-mhsa_heads: 4
+
 
 
 #train
@@ -52,48 +46,17 @@ lr: 1e-3
 weight_decay: 1e-4
 lr_scheduler:
   type: CosineAnnealingLR
-  T_max: 30
+  T_max: 30 # batch 단위로 사용할 때는 학습파일에서 따로 계산
   eta_min: 1e-5
-warmup_steps: 500      # number of optimizer steps to linearly ramp LR
+warmup_steps: 500
 patience: 5
 
 use_focal_loss: true    # finetune 시에 true로하자
 focal_alpha: [0.98, 0.02]
-focal_gamma: 1.5
+focal_gamma: 1.6
 
 model_2_path: model_2.pth
 loss_plot_2_path: loss_plot_2.png
-
-#finetune
-pretrained_model_path: model.pth
-pretrained_model_2_path: ecapa_768_256_5.pth
-finetune_lr: 3e-4
-finetune_epochs: 30
-finetuned_model_path: finetuned_model.pth
-finetuned_model_2_path: finetuned_model_2.pth
-k_folds: 5
-
-threshold_path: threshold.npz
-
-# Layers to fine-tune 
-finetune_layers:
-  - res2_3
-  - conv_fuse
-  - res2_4
-  - res2_5
-  - fc_emb
-  - fc_out
-
-finetune_2_layers:
-  - layer3
-  - layer4
-  - layer5
-  - pool
-  - emb_net
-  - fc_out
-
-
-
 
 
 # Saving and evaluation
@@ -105,8 +68,3 @@ cm_path:          confusion_matrix.png # Path to save confusion matrix image
 label_names:
   - fake
   - real
-e2e_finetuned_model_path: e2e_finetuned_model.pth
-
-loss_plot_path: loss_plot.png
-finetune_loss_plot_path: finetune_loss_plot.png
-finetune_loss_plot_2_path: finetune_loss_plot_2.png
