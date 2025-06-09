@@ -5,7 +5,6 @@ test_metadata_path: ./2501ml_data/label/test_label.txt
 test_data_path: ./2501ml_data/test
 
 #Data_preprocess
-
 sr:    16000
 n_mfcc: 20
 
@@ -16,18 +15,18 @@ hop_length: 160
 win_length: 400
 
 use_specaugment: true
-time_mask_param: 30 #30
-time_masks: 2      #2
-freq_mask_param: 12 #12
-freq_masks: 2      #2
+time_mask_param: 30 
+time_masks: 2      
+freq_mask_param: 12 
+freq_masks: 2      
 
 use_log_mel: true        
 n_mels: 128 
 
+max_time_steps: 300 
 
 #device 
 cuda: false # default : mps but if you change 'true', you can use cuda
-max_time_steps: 300  # adjusted for ~3 seconds of audio at 10ms hop (100 frames/sec)
 
 
 #model
@@ -51,17 +50,17 @@ lr_scheduler:
 warmup_steps: 500
 patience: 5
 
-use_focal_loss: true    # finetune 시에 true로하자
+use_focal_loss: true    
 focal_alpha: [0.98, 0.02]
 focal_gamma: 1.6
 
-model_2_path: model_2.pth
-loss_plot_2_path: loss_plot_2.png
+
+loss_plot_path: loss_plot.png
 
 
 # Saving and evaluation
 model_path:       model.pth            # Path to save trained model
-model_path_for_test: model_2.pth #e2e_finetuned_model.pth 
+model_path_for_test: model.pth #학습된 모델 
 result_txt:       team_test_result.txt # Text file for evaluation input
 eval_script_path: ./2501ml_data/eval.pl # Path to eval.pl script
 cm_path:          confusion_matrix.png # Path to save confusion matrix image
