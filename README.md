@@ -1,4 +1,7 @@
 # Deepfake-Audio-Detection
+## Test Acc : 96.05 
+## Model Size(parameters) : 4M
+## Model File Size : 17.5MB
 
 1. CUDA 사용시 config.yaml에서 cuda: true 로 바꿔주세요. 
 
