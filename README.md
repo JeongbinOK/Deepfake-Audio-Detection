@@ -1,5 +1,5 @@
 # Deepfake-Audio-Detection
-## Test Acc : 96.05 
+## Test Acc : 98.75 
 ## Model Size(parameters) : 4M
 ## Model File Size : 17.5MB
 
